@@ -3,17 +3,34 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn main() {
-    // Build the app
+    // Build the bootloader
     let mut cmd = Command::new("cargo");
 
     let mut dir = env::current_dir().unwrap();
-    dir.push("uefi_app");
+    dir.push("bootloader");
 
     cmd.arg("build")
         .arg("--target")
         .arg("x86_64-unknown-uefi")
         .arg("-Z")
-        .arg("build-std=core")
+        .arg("build-std=core,alloc")
+        .arg("-Z")
+        .arg("build-std-features=compiler-builtins-mem")
+        .current_dir(dir);
+
+    run_cmd(cmd);
+
+    // Build the kernel
+    let mut cmd = Command::new("cargo");
+
+    let mut dir = env::current_dir().unwrap();
+    dir.push("kernel");
+
+    cmd.arg("build")
+        .arg("--target")
+        .arg("kernel_target.json")
+        .arg("-Z")
+        .arg("build-std=core,alloc")
         .arg("-Z")
         .arg("build-std-features=compiler-builtins-mem")
         .current_dir(dir);
@@ -27,27 +44,28 @@ fn main() {
         .arg("-p")
         .arg("imager")
         .arg("--")
-        .arg("target/x86_64-unknown-uefi/debug/uefi_app.efi");
+        .arg("target/x86_64-unknown-uefi/debug/bootloader.efi")
+        .arg("target/kernel_target/debug/kernel.elf");
 
     run_cmd(cmd);
 
     // Check if OVMF is found
-    let ovmf = PathBuf::from("uefi_app/ovmfx64/code.fd").exists()
-        && PathBuf::from("uefi_app/ovmfx64/vars.fd").exists();
+    let ovmf = PathBuf::from("ovmfx64/code.fd").exists()
+        && PathBuf::from("ovmfx64/vars.fd").exists();
     if !ovmf {
         panic!(
-            "missing 1 or more OVMF files (in uefi_app/ovmfx64/{{code.fd, vars.fd}}\nfetch them from: https://github.com/rust-osdev/ovmf-prebuilt/releases/"
+            "missing 1 or more OVMF files (in ovmfx64/{{code.fd, vars.fd}}\nfetch them from: https://github.com/rust-osdev/ovmf-prebuilt/releases/"
         );
     }
     // Run qemu
     let mut cmd = Command::new("qemu-system-x86_64");
 
     cmd.arg("-drive")
-        .arg("format=raw,file=target/x86_64-unknown-uefi/debug/uefi_app.gdt")
+        .arg("format=raw,file=target/x86_64-unknown-uefi/debug/bootloader.gdt")
         .arg("-drive")
-        .arg(r"if=pflash,format=raw,readonly=on,file=uefi_app/ovmfx64\code.fd")
+        .arg("if=pflash,format=raw,readonly=on,file=ovmfx64/code.fd")
         .arg("-drive")
-        .arg(r"if=pflash,format=raw,file=uefi_app/ovmfx64/vars.fd");
+        .arg("if=pflash,format=raw,file=ovmfx64/vars.fd");
 
     run_cmd(cmd);
 }

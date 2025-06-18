@@ -8,28 +8,30 @@ use std::{
 fn main() {
     let mut args = env::args().skip(1);
     let efi_path = PathBuf::from(args.next().expect("Missing .efi file path"));
+    let kernel_path = PathBuf::from(args.next().expect("Missing kernel file path"));
 
     let fat_path = efi_path.with_extension("fat");
     let disk_path = fat_path.with_extension("gdt");
 
-    create_fs(&fat_path, &efi_path);
+    create_fs(&fat_path, &kernel_path, &efi_path);
     create_disk(&disk_path, &fat_path);
 }
 
-fn create_fs(path: &Path, efi: &Path) {
+fn create_fs(bootloader_path: &Path, kernel_path: &Path, efi: &Path) {
     let efi_size = fs::metadata(efi).unwrap().len();
+    let kernel_size = fs::metadata(kernel_path).unwrap().len();
 
     let mb = 2u64.pow(20);
-    let efi_rounded = (((efi_size - 1) / mb) + 1) * mb;
+    let size_rounded = (((efi_size + kernel_size - 1) / mb) + 1) * mb;
 
     let image = fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(true)
-        .open(path)
+        .open(bootloader_path)
         .unwrap();
-    image.set_len(efi_rounded).unwrap();
+    image.set_len(size_rounded).unwrap();
 
     let options = fatfs::FormatVolumeOptions::new();
     fatfs::format_volume(&image, options).unwrap();
@@ -41,6 +43,9 @@ fn create_fs(path: &Path, efi: &Path) {
     let mut bootefi = root.create_file("efi/boot/bootx64.efi").unwrap();
     bootefi.truncate().unwrap();
     std::io::copy(&mut fs::File::open(efi).unwrap(), &mut bootefi).unwrap();
+    let mut kernel = root.create_file("kernel.elf").unwrap();
+    kernel.truncate().unwrap();
+    std::io::copy(&mut fs::File::open(kernel_path).unwrap(), &mut kernel).unwrap();
 }
 
 fn create_disk(path: &Path, fs: &Path) {
