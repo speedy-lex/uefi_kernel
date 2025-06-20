@@ -5,7 +5,7 @@
 use alloc::vec;
 use log::info;
 use uefi::{
-    boot::{MemoryType, OpenProtocolAttributes, OpenProtocolParams},
+    boot::{MemoryDescriptor, MemoryType, OpenProtocolAttributes, OpenProtocolParams},
     mem::memory_map::MemoryMap,
     prelude::*,
     proto::{
@@ -14,12 +14,15 @@ use uefi::{
     },
     table::cfg::{ACPI_GUID, ACPI2_GUID},
 };
-use uefi_kernel::{BOOT_INFO_VIRT, BootInfo, frame_alloc};
+use uefi_kernel::{
+    BOOT_INFO_VIRT, BootInfo, MEM_OFFSET,
+    frame_alloc::{self, max_phys_addr},
+};
 use x86_64::{
     PhysAddr, VirtAddr, align_up,
     registers::control::{Cr0, Cr0Flags, Efer, EferFlags},
     structures::paging::{
-        Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB, Translate,
+        Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size1GiB, Size4KiB,
     },
 };
 
@@ -156,7 +159,7 @@ fn efi_main() -> Status {
                     mapper.map_to(
                         page,
                         frame,
-                        flags | PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+                        flags | PageTableFlags::PRESENT,
                         &mut frame_alloc,
                     )
                 }
@@ -193,20 +196,49 @@ fn efi_main() -> Status {
             kernel.header.pt2.entry_point()
         )))
     );
+    let max_phys_addr = max_phys_addr(mmap);
+    info!("offset mapping address range 0-{:x}", max_phys_addr);
+    let page_range = Page::<Size1GiB>::from_start_address(VirtAddr::new(MEM_OFFSET)).unwrap()
+        ..Page::containing_address(VirtAddr::new(MEM_OFFSET) + max_phys_addr.as_u64());
+    for page in page_range {
+        unsafe {
+            mapper.map_to(
+                page,
+                PhysFrame::containing_address(PhysAddr::new(
+                    page.start_address() - VirtAddr::new(MEM_OFFSET),
+                )),
+                PageTableFlags::PRESENT | PageTableFlags::NO_EXECUTE | PageTableFlags::WRITABLE,
+                &mut frame_alloc,
+            )
+        }
+        .unwrap()
+        .flush();
+    }
+    unsafe {
+        Cr0::update(|x| x.insert(Cr0Flags::WRITE_PROTECT));
+    }
 
-    let mut bootinfo = BootInfo {
+    graphics.blt(uefi::proto::console::gop::BltOp::VideoFill {
+        color: BltPixel::new(0, 0, 0),
+        dest: (0, 0),
+        dims: graphics_mode_info.resolution(),
+    });
+    let mmap = unsafe { boot::exit_boot_services(None) };
+    let mmap = unsafe {
+        slice::from_raw_parts(
+            // move the address into higher half addressing
+            (mmap.buffer().as_ptr().cast::<MemoryDescriptor>() as usize + MEM_OFFSET as usize)
+                as *const _,
+            mmap.len(),
+        )
+    };
+    let bootinfo = BootInfo {
         mmap,
         graphics_mode_info,
-        graphics_output: graphics.frame_buffer().as_mut_ptr(),
+        // move the address into higher half addressing
+        graphics_output: (graphics.frame_buffer().as_mut_ptr() as usize + MEM_OFFSET as usize)
+            as *mut _,
     };
-    info!(
-        "should be ok: {:?}",
-        mapper.translate_addr(VirtAddr::new(&bootinfo as *const BootInfo as u64))
-    );
-    info!(
-        "should be ok: {:?}",
-        mapper.translate_addr(VirtAddr::new(bootinfo.graphics_output as u64))
-    );
     unsafe {
         mapper.map_to(
             Page::<Size4KiB>::containing_address(VirtAddr::new(BOOT_INFO_VIRT)),
@@ -220,14 +252,6 @@ fn efi_main() -> Status {
     }
     .unwrap()
     .flush();
-    graphics.blt(uefi::proto::console::gop::BltOp::VideoFill {
-        color: BltPixel::new(0, 0, 0),
-        dest: (0, 0),
-        dims: graphics_mode_info.resolution(),
-    });
-    let mmap = unsafe { boot::exit_boot_services(None) };
-    let mmap = unsafe { slice::from_raw_parts(mmap.buffer().as_ptr().cast(), mmap.len()) };
-    bootinfo.mmap = mmap;
 
     let k_entry = kernel.header.pt2.entry_point() as usize;
     let k_entry_fn: unsafe extern "C" fn() -> ! = unsafe { core::mem::transmute(k_entry) };

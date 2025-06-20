@@ -4,8 +4,14 @@ use uefi::{boot::MemoryDescriptor, proto::console::gop::ModeInfo};
 
 pub mod frame_alloc;
 
-pub const MEM_OFFSET: u64 = 0xffff_0000_0000_0000;
+/// Must be 1GiB aligned
+pub const MEM_OFFSET: u64 = 0xffff_8000_0000_0000;
 pub const BOOT_INFO_VIRT: u64 = 0xffff_ffff_0000_0000;
+
+pub const USER_SPACE_VIRT_END: u64 = 0x0000_7fff_ffff_ffff;
+
+/// Must be honored by the kernel .elf
+pub const KERNEL_VIRT: u64 = 0xffff_ffff_8000_0000;
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, align(4096))]

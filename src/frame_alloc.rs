@@ -39,6 +39,20 @@ unsafe impl FrameAllocator<Size4KiB> for BootFrameAllocator {
     }
 }
 
+pub fn max_phys_addr(memmap: &[MemoryDescriptor]) -> PhysAddr {
+    PhysAddr::new(
+        memmap
+            .iter()
+            .map(|x| x.phys_start + x.page_count * 4096)
+            .max()
+            .unwrap()
+            // Always cover at least the first 4 GiB of physical memory. That area
+            // contains useful MMIO regions (local APIC, I/O APIC, PCI bars) that
+            // we want to make accessible to the kernel even if no DRAM exists >4GiB.
+            .min(0x1_0000_0000),
+    )
+}
+
 /// # Safety
 /// Requires that Cr3 holds a valid page table and that memory is completely mapped with the phisical_memory_offset provided
 pub unsafe fn init_offset_page_table(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
