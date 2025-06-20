@@ -33,7 +33,11 @@ fn main() {
         .arg("build-std=core,alloc")
         .arg("-Z")
         .arg("build-std-features=compiler-builtins-mem")
-        .current_dir(dir);
+        .current_dir(dir)
+        .env(
+            "RUSTFLAGS",
+            "-C code-model=large -C link-arg=-Tkernel/linker.ld -C relocation-model=static",
+        );
 
     run_cmd(cmd);
 
@@ -50,8 +54,8 @@ fn main() {
     run_cmd(cmd);
 
     // Check if OVMF is found
-    let ovmf = PathBuf::from("ovmfx64/code.fd").exists()
-        && PathBuf::from("ovmfx64/vars.fd").exists();
+    let ovmf =
+        PathBuf::from("ovmfx64/code.fd").exists() && PathBuf::from("ovmfx64/vars.fd").exists();
     if !ovmf {
         panic!(
             "missing 1 or more OVMF files (in ovmfx64/{{code.fd, vars.fd}}\nfetch them from: https://github.com/rust-osdev/ovmf-prebuilt/releases/"
@@ -66,6 +70,8 @@ fn main() {
         .arg("if=pflash,format=raw,readonly=on,file=ovmfx64/code.fd")
         .arg("-drive")
         .arg("if=pflash,format=raw,file=ovmfx64/vars.fd");
+    // .arg("-s").arg("-S");
+    // .arg("-d").arg("int").arg("-M").arg("smm=off").arg("-D").arg("out.log"); // debug exceptions
 
     run_cmd(cmd);
 }

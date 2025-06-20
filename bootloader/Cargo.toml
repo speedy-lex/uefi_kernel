@@ -11,3 +11,5 @@ harness = false
 log = "0.4.27"
 uefi = { version = "0.35.0", features = ["alloc", "global_allocator", "logger", "panic_handler"] }
 xmas-elf = "0.10.0"
+uefi_kernel = { path = ".." }
+x86_64 = "0.15.2"

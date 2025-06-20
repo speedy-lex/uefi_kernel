@@ -22,7 +22,7 @@ fn create_fs(bootloader_path: &Path, kernel_path: &Path, efi: &Path) {
     let kernel_size = fs::metadata(kernel_path).unwrap().len();
 
     let mb = 2u64.pow(20);
-    let size_rounded = (((efi_size + kernel_size - 1) / mb) + 1) * mb;
+    let size_rounded = (((efi_size + kernel_size - 1) / mb) + 5) * mb;
 
     let image = fs::OpenOptions::new()
         .read(true)
