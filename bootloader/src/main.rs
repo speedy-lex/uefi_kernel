@@ -15,11 +15,11 @@ use uefi::{
     table::cfg::{ACPI_GUID, ACPI2_GUID},
 };
 use uefi_kernel::{
-    BOOT_INFO_VIRT, BootInfo, MEM_OFFSET,
-    frame_alloc::{self, max_phys_addr},
+    BOOT_INFO_VIRT, BootInfo, FRAME_TRACKER_VIRT, MEM_OFFSET,
+    frame_alloc::{self, FrameUsageType, max_phys_addr},
 };
 use x86_64::{
-    PhysAddr, VirtAddr, align_up,
+    PhysAddr, VirtAddr,
     registers::control::{Cr0, Cr0Flags, Efer, EferFlags},
     structures::paging::{
         Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size1GiB, Size4KiB,
@@ -106,15 +106,7 @@ fn efi_main() -> Status {
 
     let mmap = boot::memory_map(MemoryType::LOADER_DATA).unwrap();
     let mmap = unsafe { slice::from_raw_parts(mmap.buffer().as_ptr().cast(), mmap.len()) };
-    let mut frame_alloc = unsafe { frame_alloc::BootFrameAllocator::new(mmap) };
-    let mut phys_segment_addr = 0;
-    for desc in mmap {
-        if desc.ty == MemoryType::CONVENTIONAL && desc.page_count >= 128 && desc.phys_start != 0 {
-            info!("kernel loading to: {desc:?}");
-            phys_segment_addr = desc.phys_start;
-        }
-    }
-    assert_ne!(phys_segment_addr, 0);
+    let mut frame_alloc = unsafe { frame_alloc::BootFrameAllocator::new(mmap, VirtAddr::zero()) };
 
     unsafe {
         Cr0::update(|x| x.remove(Cr0Flags::WRITE_PROTECT));
@@ -150,11 +142,11 @@ fn efi_main() -> Status {
             );
             let page_range = Page::<Size4KiB>::containing_address(VirtAddr::new(virt_addr))
                 ..=Page::containing_address(VirtAddr::new(virt_addr) + mem_size);
-            info!("mapping {:?} starting at {phys_segment_addr:x}", page_range);
-            for (page, frame) in page_range.zip(0..) {
-                let frame = PhysFrame::<Size4KiB>::containing_address(
-                    PhysAddr::new(phys_segment_addr) + frame * 4096,
-                );
+            info!("mapping {:?}", page_range);
+            for page in page_range {
+                let frame = frame_alloc
+                    .allocate_frame_ty(FrameUsageType::KernelCode)
+                    .unwrap();
                 unsafe {
                     mapper.map_to(
                         page,
@@ -184,9 +176,6 @@ fn efi_main() -> Status {
             //         core::slice::from_raw_parts_mut(virt_addr as *mut u8, mem_size as usize)
             //     })[..32]
             // );
-
-            phys_segment_addr += mem_size;
-            phys_segment_addr = align_up(phys_segment_addr, 4096) + 4096;
         }
     }
     info!(
@@ -242,21 +231,37 @@ fn efi_main() -> Status {
     unsafe {
         mapper.map_to(
             Page::<Size4KiB>::containing_address(VirtAddr::new(BOOT_INFO_VIRT)),
-            PhysFrame::from_start_address(PhysAddr::new(
-                (&bootinfo as *const BootInfo).addr() as u64
-            ))
-            .unwrap(),
+            PhysFrame::from_start_address(PhysAddr::new((&bootinfo as *const BootInfo) as u64))
+                .unwrap(),
             PageTableFlags::NO_EXECUTE | PageTableFlags::PRESENT,
             &mut frame_alloc,
         )
     }
     .unwrap()
     .flush();
+    unsafe {
+        mapper.map_to(
+            Page::<Size4KiB>::containing_address(VirtAddr::new(FRAME_TRACKER_VIRT)),
+            PhysFrame::from_start_address(PhysAddr::new(frame_alloc.frame_tracker.buffer() as u64))
+                .unwrap(),
+            PageTableFlags::NO_EXECUTE | PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+            &mut frame_alloc,
+        )
+    }
+    .unwrap()
+    .flush();
+
+    frame_alloc.frame_tracker.as_mut().iter_mut().for_each(|x| {
+        if x.ty == FrameUsageType::Unknown {
+            x.ty = FrameUsageType::PageTable;
+        }
+    });
+    frame_alloc.frame_tracker.merge_all();
 
     let k_entry = kernel.header.pt2.entry_point() as usize;
-    let k_entry_fn: unsafe extern "C" fn() -> ! = unsafe { core::mem::transmute(k_entry) };
+    let k_entry_fn: unsafe extern "C" fn(usize) -> ! = unsafe { core::mem::transmute(k_entry) };
 
-    unsafe { k_entry_fn() };
+    unsafe { k_entry_fn(frame_alloc.frame_tracker.as_ref().len()) };
 }
 
 pub unsafe fn init_offset_page_table(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
