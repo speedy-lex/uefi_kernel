@@ -73,18 +73,17 @@ impl BootFrameAllocator {
     }
 }
 
-pub fn max_phys_addr(memmap: &[MemoryDescriptor]) -> PhysAddr {
-    PhysAddr::new(
+pub fn max_phys_addr(memmap: &[MemoryDescriptor]) -> u64 {
         memmap
             .iter()
+            .filter(|x| x.ty.0 < 0x10) // skip weird custom stuff that is in the terabytes
             .map(|x| x.phys_start + x.page_count * 4096)
             .max()
             .unwrap()
             // Always cover at least the first 4 GiB of physical memory. That area
             // contains useful MMIO regions (local APIC, I/O APIC, PCI bars) that
             // we want to make accessible to the kernel even if no DRAM exists >4GiB.
-            .min(0x1_0000_0000),
-    )
+            .max(0x1_0000_0000)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
