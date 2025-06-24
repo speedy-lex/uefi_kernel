@@ -185,10 +185,16 @@ fn efi_main() -> Status {
             kernel.header.pt2.entry_point()
         )))
     );
+    for desc in mmap {
+        if desc.phys_start + desc.page_count * 4096 >= 0x1_0000_0000_0000 {
+            info!("{desc:?}");
+            info!("{:x}", desc.phys_start + desc.page_count * 4096);
+        }
+    }
     let max_phys_addr = max_phys_addr(mmap);
     info!("offset mapping address range 0-{:x}", max_phys_addr);
     let page_range = Page::<Size1GiB>::from_start_address(VirtAddr::new(MEM_OFFSET)).unwrap()
-        ..Page::containing_address(VirtAddr::new(MEM_OFFSET) + max_phys_addr.as_u64());
+        ..Page::containing_address(VirtAddr::new(MEM_OFFSET) + max_phys_addr);
     for page in page_range {
         unsafe {
             mapper.map_to(

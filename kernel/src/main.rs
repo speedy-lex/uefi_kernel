@@ -31,8 +31,6 @@ use x86_64::{
 
 use linked_list_allocator::LockedHeap;
 
-use core::fmt::Write;
-
 use crate::{frame_alloc::KernelFrameAllocator, framebuffer::FrameBuffer};
 
 mod frame_alloc;
@@ -77,9 +75,6 @@ extern "C" fn main(frame_tracker_len: usize) -> ! {
         },
         mmap,
     );
-    let mut str = ArrayString::<1024>::new();
-    write!(str, "{:?}", frame_alloc.frame_tracker.as_ref());
-    row += draw_text(&mut framebuffer, &str, row);
 
     let mut mapper = unsafe { init_offset_page_table(VirtAddr::new(MEM_OFFSET)) };
     row += draw_text(&mut framebuffer, "Cleaning up BootInfo mapping", row);
