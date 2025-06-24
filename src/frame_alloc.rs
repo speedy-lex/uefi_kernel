@@ -27,10 +27,9 @@ impl BootFrameAllocator {
     /// and that all memory is mapped with offset
     pub unsafe fn new(mmap: &'static [MemoryDescriptor], offset: VirtAddr) -> Self {
         // create frametracker
-        let frame = Self::usable_frames(mmap).next().unwrap();
-        let mut frame_tracker = unsafe {
-            FrameTrackerArray::new((offset + frame.start_address().as_u64()).as_mut_ptr(), 4096)
-        };
+        let frame = Self::usable_frames(mmap).next().unwrap().start_address();
+        let mut frame_tracker =
+            unsafe { FrameTrackerArray::new((offset + frame.as_u64()).as_mut_ptr(), 4096) };
         frame_tracker.push_used_frame(UsedFrame {
             frame,
             count: NonZero::new(1).unwrap(),
@@ -49,7 +48,7 @@ unsafe impl FrameAllocator<Size4KiB> for BootFrameAllocator {
         let frame = Self::usable_frames(self.mmap).nth(self.next_frame);
         if let Some(frame) = frame {
             self.frame_tracker.push_used_frame(UsedFrame {
-                frame,
+                frame: frame.start_address(),
                 count: NonZero::new(1).unwrap(),
                 ty: FrameUsageType::Unknown,
             });
@@ -63,7 +62,7 @@ impl BootFrameAllocator {
         let frame = Self::usable_frames(self.mmap).nth(self.next_frame);
         if let Some(frame) = frame {
             self.frame_tracker.push_used_frame(UsedFrame {
-                frame,
+                frame: frame.start_address(),
                 count: NonZero::new(1).unwrap(),
                 ty,
             });
@@ -100,7 +99,7 @@ pub enum FrameUsageType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct UsedFrame {
-    pub frame: PhysFrame<Size4KiB>,
+    pub frame: PhysAddr,
     pub count: NonZero<u32>, // Should be u64 but no one is mapping 17TiB continious of 1 type
     pub ty: FrameUsageType,
 }
@@ -108,15 +107,13 @@ impl UsedFrame {
     pub fn can_merge(&self, other: &UsedFrame) -> bool {
         self.ty != FrameUsageType::Unknown
             && self.ty == other.ty
-            && ((self.frame.start_address() + self.count.get() as u64 * 4096)
-                == other.frame.start_address()
-                || self.frame.start_address()
-                    == (other.frame.start_address() + other.count.get() as u64 * 4096))
+            && ((self.frame + self.count.get() as u64 * 4096) == other.frame
+                || self.frame == (other.frame + other.count.get() as u64 * 4096))
     }
     /// # Safety
     /// Caller is required to check if the operation is valid by calling `can_merge`
     pub unsafe fn merge(&mut self, other: UsedFrame) {
-        self.frame = if self.frame.start_address() < other.frame.start_address() {
+        self.frame = if self.frame < other.frame {
             self.frame
         } else {
             other.frame
@@ -173,7 +170,7 @@ impl FrameTrackerArray {
             let mut j = i + 1;
 
             // Move elements on the right that are smaller than key one position to the left
-            while j < len && frames[j].frame.start_address() < key.frame.start_address() {
+            while j < len && frames[j].frame < key.frame {
                 frames[j - 1] = frames[j];
                 j += 1;
             }

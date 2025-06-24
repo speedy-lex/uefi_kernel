@@ -26,7 +26,7 @@ use uefi_kernel::{
 use x86_64::{
     VirtAddr,
     instructions::tlb,
-    structures::paging::{Mapper, OffsetPageTable, Page, PageTableFlags, Size4KiB},
+    structures::paging::{Mapper, OffsetPageTable, Page, PageTableFlags, Size2MiB, Size4KiB},
 };
 
 use linked_list_allocator::LockedHeap;
@@ -176,15 +176,17 @@ fn clear_row(framebuffer: &mut FrameBuffer, row: usize) {
 fn init_heap(frame_alloc: &mut KernelFrameAllocator, mapper: &mut OffsetPageTable) {
     let heap_bottom = VirtAddr::new(KERNEL_HEAP_VIRT);
     let heap_size = KERNEL_HEAP_SIZE;
+    assert_eq!(heap_size % (16 * 1024 * 1024), 0);
 
-    let page_range = Page::<Size4KiB>::containing_address(heap_bottom)
+    let page_range = Page::<Size2MiB>::containing_address(heap_bottom)
         ..=Page::containing_address(heap_bottom + heap_size - 1);
 
-    for pages in page_range.array_chunks::<1024>() {
-        let mut frames = [MaybeUninit::uninit(); 1024];
+    for pages in page_range.array_chunks::<8>() {
+        let mut frames = [MaybeUninit::uninit(); 8];
         let allocated = frame_alloc.allocate_frames_ty(&mut frames, FrameUsageType::KernelHeap);
         assert_eq!(allocated, frames.len());
         let frames = unsafe { MaybeUninit::array_assume_init(frames) };
+
         for (page, frame) in pages.into_iter().zip(frames) {
             unsafe {
                 mapper.map_to(
