@@ -28,7 +28,6 @@ impl From<Rgb888> for Color {
 pub struct FrameBuffer {
     bytes: &'static mut [u8],
     mode_info: ModeInfo,
-    row: usize,
 }
 impl FrameBuffer {
     pub unsafe fn new(mode_info: ModeInfo, ptr: *mut u8) -> Self {
@@ -36,7 +35,6 @@ impl FrameBuffer {
         Self {
             bytes: unsafe { core::slice::from_raw_parts_mut(ptr, len) },
             mode_info,
-            row: 0,
         }
     }
     pub fn set_pixel(&mut self, x: usize, y: usize, color: Color) {
@@ -51,6 +49,12 @@ impl FrameBuffer {
             }
             _ => panic!("unsupported pixel format"),
         }
+    }
+    pub const fn resolution(&self) -> (usize, usize) {
+        self.mode_info.resolution()
+    }
+    pub fn clear_black(&mut self) {
+        self.bytes.fill(0);
     }
 }
 
@@ -78,6 +82,20 @@ impl DrawTarget for FrameBuffer {
                 self.set_pixel(pixel.0.x as usize, pixel.0.y as usize, pixel.1.into());
             }
         }
+        Ok(())
+    }
+    
+    fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
+        let pixel = match self.mode_info.pixel_format() {
+            uefi::proto::console::gop::PixelFormat::Rgb => {
+                [color.r(), color.g(), color.b(), 0]
+            }
+            uefi::proto::console::gop::PixelFormat::Bgr => {
+                [color.b(), color.g(), color.r(), 0]
+            }
+            _ => panic!("unsupported pixel format"),
+        };
+        self.bytes.as_chunks_mut::<4>().0.fill(pixel);
         Ok(())
     }
 }

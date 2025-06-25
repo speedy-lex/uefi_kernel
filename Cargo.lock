@@ -243,6 +243,8 @@ dependencies = [
  "arrayvec",
  "embedded-graphics",
  "linked_list_allocator",
+ "log",
+ "spin",
  "uefi",
  "uefi_kernel",
  "x86_64",
@@ -367,6 +369,15 @@ name = "simple-bytes"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c11532d9d241904f095185f35dcdaf930b1427a94d5b01d7002d74ba19b44cc4"
+
+[[package]]
+name = "spin"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
+dependencies = [
+ "lock_api",
+]
 
 [[package]]
 name = "spinning_top"

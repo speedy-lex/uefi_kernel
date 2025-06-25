@@ -7,8 +7,9 @@ extern crate alloc;
 
 use core::{arch::naked_asm, mem::MaybeUninit, panic::PanicInfo};
 
-use alloc::{boxed::Box, format};
-use arrayvec::ArrayString;
+use spin::Once;
+
+use alloc::boxed::Box;
 
 use embedded_graphics::{
     Drawable,
@@ -19,6 +20,7 @@ use embedded_graphics::{
     text::{Baseline, LineHeight, Text, TextStyleBuilder},
 };
 
+use log::{LevelFilter, info};
 use uefi_kernel::{
     BOOT_INFO_VIRT, BootInfo, FRAME_TRACKER_VIRT, KERNEL_HEAP_SIZE, KERNEL_HEAP_VIRT, MEM_OFFSET,
     frame_alloc::{FrameTrackerArray, FrameUsageType, UsedFrame, init_offset_page_table},
@@ -31,13 +33,16 @@ use x86_64::{
 
 use linked_list_allocator::LockedHeap;
 
-use crate::{frame_alloc::KernelFrameAllocator, framebuffer::FrameBuffer};
+use crate::{frame_alloc::KernelFrameAllocator, framebuffer::FrameBuffer, logger::Logger};
 
 mod frame_alloc;
 mod framebuffer;
+mod logger;
 
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
+
+static LOGGER: Once<Logger> = Once::new();
 
 const BOOT_STACK_LEN: usize = 512 * 1024;
 
@@ -77,16 +82,22 @@ extern "C" fn main(frame_tracker_len: usize) -> ! {
     );
 
     let mut mapper = unsafe { init_offset_page_table(VirtAddr::new(MEM_OFFSET)) };
-    row += draw_text(&mut framebuffer, "Cleaning up BootInfo mapping", row);
+
+    row += draw_text(&mut framebuffer, "Initializing heap", row);
+    init_heap(&mut frame_alloc, &mut mapper);
+
+    draw_text(&mut framebuffer, "Initializing logger", row);
+    let logger = Logger::new(framebuffer);
+    let log_ref = LOGGER.call_once(|| logger);
+    log::set_logger(log_ref).unwrap();
+    log::set_max_level(LevelFilter::max());
+    info!("hello test");
+
+    info!("Cleaning up old page mappings");
     // remove the boot info mapping
     mapper.unmap(Page::<Size4KiB>::containing_address(VirtAddr::new(
         BOOT_INFO_VIRT,
     )));
-    row += draw_text(
-        &mut framebuffer,
-        "Cleaning up old uefi identity mappings",
-        row,
-    );
     // remove uefi identity mapping uses directly deleting entries because we dont care to dealloc frames
     // since they were allocated by uefi fw
     // lower half of address space is p4 0..256, upper half (mapped) is 256..512
@@ -96,18 +107,10 @@ extern "C" fn main(frame_tracker_len: usize) -> ! {
     }
     tlb::flush_all(); // apply the changes
 
-    row += draw_text(&mut framebuffer, "Initializing heap", row);
-    init_heap(&mut frame_alloc, &mut mapper);
-
     let b = Box::new(42usize);
-    row += draw_text(
-        &mut framebuffer,
-        &format!("Box: {b} at {:p}", b.as_ref() as *const _),
-        row,
-    );
+    info!("Box: {b} at {:p}", b.as_ref() as *const _);
 
-    row += draw_text(&mut framebuffer, "Done", row);
-
+    info!("done");
     loop {}
 }
 
