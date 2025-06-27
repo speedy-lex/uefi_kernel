@@ -79,7 +79,9 @@ fn main() {
 fn run_cmd(mut cmd: Command) {
     println!("Running: {cmd:?}");
 
-    let status = cmd.status().expect("Failed to run cargo build");
+    let status = cmd
+        .status()
+        .unwrap_or_else(|_| panic!("Failed to run {cmd:?}"));
 
     if !status.success() {
         std::process::exit(status.code().unwrap_or(1));

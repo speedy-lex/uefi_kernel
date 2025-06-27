@@ -84,15 +84,11 @@ impl DrawTarget for FrameBuffer {
         }
         Ok(())
     }
-    
+
     fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
         let pixel = match self.mode_info.pixel_format() {
-            uefi::proto::console::gop::PixelFormat::Rgb => {
-                [color.r(), color.g(), color.b(), 0]
-            }
-            uefi::proto::console::gop::PixelFormat::Bgr => {
-                [color.b(), color.g(), color.r(), 0]
-            }
+            uefi::proto::console::gop::PixelFormat::Rgb => [color.r(), color.g(), color.b(), 0],
+            uefi::proto::console::gop::PixelFormat::Bgr => [color.b(), color.g(), color.r(), 0],
             _ => panic!("unsupported pixel format"),
         };
         self.bytes.as_chunks_mut::<4>().0.fill(pixel);

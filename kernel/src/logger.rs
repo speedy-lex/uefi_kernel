@@ -6,13 +6,23 @@ use embedded_graphics::{
     Drawable,
     mono_font::{MonoFont, MonoTextStyleBuilder, ascii::FONT_10X20},
     pixelcolor::Rgb888,
-    prelude::{DrawTarget, Point, RgbColor},
+    prelude::{Point, RgbColor},
     text::{Baseline, LineHeight, Text, TextStyleBuilder},
 };
-use log::Log;
+use log::{LevelFilter, Log};
+use spin::Once;
 use spin::mutex::SpinMutex;
 
 use crate::framebuffer::FrameBuffer;
+
+static LOGGER: Once<Logger> = Once::new();
+
+pub fn init(framebuffer: FrameBuffer) {
+    let logger = Logger::new(framebuffer);
+    let log_ref = LOGGER.call_once(|| logger);
+    log::set_logger(log_ref).unwrap();
+    log::set_max_level(LevelFilter::max());
+}
 
 pub struct Logger {
     inner: SpinMutex<LoggerInner>,
