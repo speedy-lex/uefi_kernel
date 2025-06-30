@@ -12,7 +12,7 @@ use uefi::{
         console::gop::{BltPixel, GraphicsOutput},
         media::file::{File, FileAttribute, FileMode},
     },
-    table::cfg::{ACPI_GUID, ACPI2_GUID},
+    table::cfg::ACPI2_GUID,
 };
 use uefi_kernel::{
     BOOT_INFO_VIRT, BootInfo, FRAME_TRACKER_VIRT, MEM_OFFSET,
@@ -44,9 +44,10 @@ fn efi_main() -> Status {
     let rsdp = system::with_config_table(|entries| {
         entries
             .iter()
-            .find(|entry| matches!(entry.guid, ACPI_GUID | ACPI2_GUID))
+            .find(|entry| matches!(entry.guid, ACPI2_GUID))
             .map(|entry| entry.address)
-    });
+    })
+    .expect("couldn't find acpi 2.0+ rsdp table");
     info!("rsdp found at: {rsdp:?}");
 
     // initialize framebuffer
@@ -105,7 +106,26 @@ fn efi_main() -> Status {
     xmas_elf::header::sanity_check(&kernel).unwrap();
 
     let mmap = boot::memory_map(MemoryType::LOADER_DATA).unwrap();
-    let mmap = unsafe { slice::from_raw_parts(mmap.buffer().as_ptr().cast(), mmap.len()) };
+    let mmap: &[MemoryDescriptor] =
+        unsafe { slice::from_raw_parts(mmap.buffer().as_ptr().cast(), mmap.len()) };
+    for mem in mmap.iter().filter(|x| {
+        x.ty < MemoryType::MAX
+            && !matches!(
+                x.ty,
+                MemoryType::RESERVED
+                    | MemoryType::UNACCEPTED
+                    | MemoryType::MMIO
+                    | MemoryType::MMIO_PORT_SPACE
+                    | MemoryType::BOOT_SERVICES_CODE
+                    | MemoryType::BOOT_SERVICES_DATA
+            )
+    }) {
+        info!(
+            "{:?} @ {:x}, pages: {:x}",
+            mem.ty, mem.phys_start, mem.page_count
+        );
+    }
+    boot::stall(3_000_000);
     let mut frame_alloc = unsafe { frame_alloc::BootFrameAllocator::new(mmap, VirtAddr::zero()) };
 
     unsafe {
@@ -185,12 +205,6 @@ fn efi_main() -> Status {
             kernel.header.pt2.entry_point()
         )))
     );
-    for desc in mmap {
-        if desc.phys_start + desc.page_count * 4096 >= 0x1_0000_0000_0000 {
-            info!("{desc:?}");
-            info!("{:x}", desc.phys_start + desc.page_count * 4096);
-        }
-    }
     let max_phys_addr = max_phys_addr(mmap);
     info!("offset mapping address range 0-{:x}", max_phys_addr);
     let page_range = Page::<Size1GiB>::from_start_address(VirtAddr::new(MEM_OFFSET)).unwrap()
@@ -233,6 +247,7 @@ fn efi_main() -> Status {
         // move the address into higher half addressing
         graphics_output: (graphics.frame_buffer().as_mut_ptr() as usize + MEM_OFFSET as usize)
             as *mut _,
+        rsdp,
     };
     unsafe {
         mapper.map_to(

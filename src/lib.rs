@@ -1,5 +1,7 @@
 #![no_std]
 
+use core::ffi::c_void;
+
 use uefi::{boot::MemoryDescriptor, proto::console::gop::ModeInfo};
 
 pub mod frame_alloc;
@@ -24,4 +26,5 @@ pub struct BootInfo {
     pub mmap: &'static [MemoryDescriptor],
     pub graphics_mode_info: ModeInfo,
     pub graphics_output: *mut u8,
+    pub rsdp: *const c_void,
 }

@@ -69,7 +69,9 @@ fn main() {
         .arg("-drive")
         .arg("if=pflash,format=raw,readonly=on,file=ovmfx64/code.fd")
         .arg("-drive")
-        .arg("if=pflash,format=raw,file=ovmfx64/vars.fd");
+        .arg("if=pflash,format=raw,file=ovmfx64/vars.fd")
+        .arg("-machine")
+        .arg("q35");
     // .arg("-s").arg("-S");
     // .arg("-d").arg("int").arg("-M").arg("smm=off").arg("-D").arg("out.log"); // debug exceptions
 

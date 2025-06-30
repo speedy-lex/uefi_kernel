@@ -7,8 +7,7 @@ extern crate alloc;
 
 use core::{arch::naked_asm, panic::PanicInfo};
 
-use alloc::boxed::Box;
-
+use ::acpi::{AcpiTables, mcfg::Mcfg};
 use log::info;
 use uefi_kernel::{BootInfo, frame_alloc::FrameTrackerArray};
 
@@ -18,6 +17,7 @@ use crate::{
     paging::{cleanup_mappings, get_page_table},
 };
 
+mod acpi;
 #[macro_use]
 mod entry;
 mod frame_alloc;
@@ -35,13 +35,15 @@ fn kmain(boot_info: BootInfo, frame_tracker: FrameTrackerArray, framebuffer: Fra
     heap::init(&mut frame_alloc, &mut page_table);
 
     logger::init(framebuffer);
-    info!("Kernel loaded");
+    info!("Kernel initialized");
 
     info!("Cleaning up old page mappings");
     unsafe { cleanup_mappings(&mut page_table) };
 
-    let b = Box::new(42usize);
-    info!("Box: {b} at {:p}", b.as_ref() as *const _);
+    info!("Reading acpi tables");
+    let acpi = unsafe { AcpiTables::from_rsdp(acpi::Mapper, boot_info.rsdp.addr()) }.unwrap();
+    let mcfg = acpi.find_table::<Mcfg>().unwrap();
+    info!("mcfg entries: {:?}", mcfg.entries());
 
     info!("done");
     loop {}
