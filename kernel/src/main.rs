@@ -1,15 +1,18 @@
 #![no_std]
 #![no_main]
+#![expect(internal_features)]
+#![feature(core_intrinsics)]
 #![feature(iter_array_chunks)]
 #![feature(maybe_uninit_array_assume_init)]
 
 extern crate alloc;
 
-use core::{arch::naked_asm, panic::PanicInfo};
+use core::{arch::naked_asm, panic::PanicInfo, slice};
 
 use ::acpi::{AcpiTables, mcfg::Mcfg};
+use alloc::vec::Vec;
 use log::info;
-use uefi_kernel::{BootInfo, frame_alloc::FrameTrackerArray};
+use uefi_kernel::{frame_alloc::FrameTrackerArray, BootInfo, MEM_OFFSET};
 
 use crate::{
     frame_alloc::KernelFrameAllocator,
@@ -44,6 +47,10 @@ fn kmain(boot_info: BootInfo, frame_tracker: FrameTrackerArray, framebuffer: Fra
     let acpi = unsafe { AcpiTables::from_rsdp(acpi::Mapper, boot_info.rsdp.addr()) }.unwrap();
     let mcfg = acpi.find_table::<Mcfg>().unwrap();
     info!("mcfg entries: {:?}", mcfg.entries());
+    for entry in mcfg.entries() {
+        info!("data: {:?}", unsafe { slice::from_raw_parts(
+            (entry.base_address + MEM_OFFSET) as *const u8, 64) }.into_iter().map(|x| *x as char).collect::<Vec<_>>());
+    }
 
     info!("done");
     loop {}
@@ -52,5 +59,5 @@ fn kmain(boot_info: BootInfo, frame_tracker: FrameTrackerArray, framebuffer: Fra
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     info!("{:?}: {}", info.location(), info.message());
-    loop {}
+    core::intrinsics::abort();
 }

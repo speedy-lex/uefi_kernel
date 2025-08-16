@@ -17,7 +17,7 @@ pub unsafe fn cleanup_mappings(page_table: &mut OffsetPageTable) {
     // remove the boot info mapping
     page_table.unmap(Page::<Size4KiB>::containing_address(VirtAddr::new(
         BOOT_INFO_VIRT,
-    )));
+    ))).unwrap();
     // remove uefi identity mapping uses directly deleting entries because we dont care to dealloc frames
     // since they were allocated by uefi fw
     // lower half of address space is p4 0..256, upper half (mapped) is 256..512

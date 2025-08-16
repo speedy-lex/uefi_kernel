@@ -13,7 +13,7 @@ pub struct BootFrameAllocator {
 }
 impl BootFrameAllocator {
     pub fn usable_frames(mmap: &[MemoryDescriptor]) -> impl Iterator<Item = PhysFrame> {
-        let usable_regions = mmap.iter().filter(|x| x.ty == MemoryType::CONVENTIONAL);
+        let usable_regions = mmap.iter().filter(|x| matches!(x.ty, MemoryType::CONVENTIONAL | MemoryType::BOOT_SERVICES_CODE | MemoryType::BOOT_SERVICES_DATA));
         let usable_ranges =
             usable_regions.map(|x| x.phys_start..(x.phys_start + x.page_count * 4096));
         let usable_frames = usable_ranges

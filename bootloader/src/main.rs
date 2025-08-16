@@ -5,7 +5,7 @@
 use alloc::vec;
 use log::info;
 use uefi::{
-    boot::{MemoryDescriptor, MemoryType, OpenProtocolAttributes, OpenProtocolParams},
+    boot::{MemoryDescriptor, OpenProtocolAttributes, OpenProtocolParams},
     mem::memory_map::MemoryMap,
     prelude::*,
     proto::{
@@ -105,29 +105,20 @@ fn efi_main() -> Status {
     let kernel = xmas_elf::ElfFile::new(&buffer).unwrap();
     xmas_elf::header::sanity_check(&kernel).unwrap();
 
-    let mmap = boot::memory_map(MemoryType::LOADER_DATA).unwrap();
-    let mmap: &[MemoryDescriptor] =
-        unsafe { slice::from_raw_parts(mmap.buffer().as_ptr().cast(), mmap.len()) };
-    for mem in mmap.iter().filter(|x| {
-        x.ty < MemoryType::MAX
-            && !matches!(
-                x.ty,
-                MemoryType::RESERVED
-                    | MemoryType::UNACCEPTED
-                    | MemoryType::MMIO
-                    | MemoryType::MMIO_PORT_SPACE
-                    | MemoryType::BOOT_SERVICES_CODE
-                    | MemoryType::BOOT_SERVICES_DATA
-            )
-    }) {
-        info!(
-            "{:?} @ {:x}, pages: {:x}",
-            mem.ty, mem.phys_start, mem.page_count
-        );
-    }
-    boot::stall(3_000_000);
-    let mut frame_alloc = unsafe { frame_alloc::BootFrameAllocator::new(mmap, VirtAddr::zero()) };
-
+    graphics.blt(uefi::proto::console::gop::BltOp::VideoFill {
+        color: BltPixel::new(0, 0, 0),
+        dest: (0, 0),
+        dims: graphics_mode_info.resolution(),
+    });
+    let mmap = unsafe { boot::exit_boot_services(None) };
+    let loader_mmap = unsafe {
+        slice::from_raw_parts(
+            // move the address into higher half addressing
+            mmap.buffer().as_ptr().cast::<MemoryDescriptor>(),
+            mmap.len(),
+        )
+    };
+    let mut frame_alloc = unsafe { frame_alloc::BootFrameAllocator::new(loader_mmap, VirtAddr::zero()) };
     unsafe {
         Cr0::update(|x| x.remove(Cr0Flags::WRITE_PROTECT));
         Efer::update(|x| x.insert(EferFlags::NO_EXECUTE_ENABLE));
@@ -205,7 +196,7 @@ fn efi_main() -> Status {
             kernel.header.pt2.entry_point()
         )))
     );
-    let max_phys_addr = max_phys_addr(mmap);
+    let max_phys_addr = max_phys_addr(loader_mmap);
     info!("offset mapping address range 0-{:x}", max_phys_addr);
     let page_range = Page::<Size1GiB>::from_start_address(VirtAddr::new(MEM_OFFSET)).unwrap()
         ..Page::containing_address(VirtAddr::new(MEM_OFFSET) + max_phys_addr);
@@ -227,12 +218,6 @@ fn efi_main() -> Status {
         Cr0::update(|x| x.insert(Cr0Flags::WRITE_PROTECT));
     }
 
-    graphics.blt(uefi::proto::console::gop::BltOp::VideoFill {
-        color: BltPixel::new(0, 0, 0),
-        dest: (0, 0),
-        dims: graphics_mode_info.resolution(),
-    });
-    let mmap = unsafe { boot::exit_boot_services(None) };
     let mmap = unsafe {
         slice::from_raw_parts(
             // move the address into higher half addressing
